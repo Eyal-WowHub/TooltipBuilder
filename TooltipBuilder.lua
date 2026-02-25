@@ -1,17 +1,18 @@
 assert(LibStub, "TooltipBuilder-1.0 requires LibStub")
 
 local C = LibStub("Contracts-1.0")
-assert(C, "Addon-1.0 requires Contracts-1.0")
+assert(C, "TooltipBuilder-1.0 requires Contracts-1.0")
 
-local lib = LibStub:NewLibrary("TooltipBuilder-1.0", 0)
+local lib = LibStub:NewLibrary("TooltipBuilder-1.0", 1)
 if not lib then return end
 
 local rep = string.rep
 local select = select
 
+local tooltip = GameTooltip
+
 local UnitClass = UnitClass
 
-local GameTooltip = GameTooltip
 local NORMAL_FONT_COLOR = NORMAL_FONT_COLOR
 local HIGHLIGHT_FONT_COLOR = HIGHLIGHT_FONT_COLOR
 local GRAY_FONT_COLOR = GRAY_FONT_COLOR
@@ -23,9 +24,17 @@ local YELLOW_FONT_COLOR = YELLOW_FONT_COLOR
 local ORANGE_FONT_COLOR = ORANGE_FONT_COLOR
 local RAID_CLASS_COLORS = RAID_CLASS_COLORS
 
+function lib:SetTooltip(frame)
+    tooltip = frame or GameTooltip
+    return self
+end
+
 do
     lib.Line = lib.Line or {}
 
+    -- NOTE: TooltipLine is a shared mutable state. All operations are sequential
+    -- and non-reentrant. Do not call builder methods from within a callback or
+    -- hook that may fire between SetLine and ToLine of another caller.
     local TooltipLine = {
         isHeader = false,
         isDoubleLine = false,
@@ -102,6 +111,8 @@ end
 
 function lib:SetLine(text)
     C:Requires(text, 2, "string", "number")
+    -- NOTE: Calling SetLine more than twice before ToLine will overwrite rightText.
+    -- This is intentional and used to conditionally replace the right side.
     local line = self.Line
     local leftText = line:GetText()
     if not leftText then
@@ -125,6 +136,9 @@ end
 
 function lib:SetColor(color)
     C:Requires(color, 2, "table")
+    -- NOTE: Targets the left side when only leftText is set, and the right side
+    -- once rightText has been set (isDoubleLine). Always set text before color.
+    -- The same implicit targeting applies to WrapText, Indent, and Set*Color helpers.
     local line = self.Line
     if not line:IsDoubleLine() then
         line:SetLeftColor(color)
@@ -139,11 +153,13 @@ function lib:WrapText(color)
     local line = self.Line
     local leftText, rightText = line:GetText()
     if not line:IsDoubleLine() then
-        leftText = color and color:WrapTextInColorCode(leftText) or leftText
-        line:SetLeftText(leftText)
+        if leftText then
+            line:SetLeftText(color:WrapTextInColorCode(leftText))
+        end
     else
-        rightText = color and color:WrapTextInColorCode(rightText) or rightText
-        line:SetRightText(rightText)
+        if rightText then
+            line:SetRightText(color:WrapTextInColorCode(rightText))
+        end
     end
     return self
 end
@@ -212,9 +228,13 @@ function lib:Indent(length)
     local line = self.Line
     local leftText, rightText = line:GetText()
     if not line:IsDoubleLine() then
-        line:SetLeftText(indent .. leftText)
+        if leftText then
+            line:SetLeftText(indent .. leftText)
+        end
     else
-        line:SetRightText(indent .. rightText)
+        if rightText then
+            line:SetRightText(indent .. rightText)
+        end
     end
     return self
 end
@@ -228,13 +248,19 @@ end
 function lib:ToLine()
     local line = self.Line
     local leftText, rightText = line:GetText()
+
+    if not leftText then
+        line:Clear()
+        return self
+    end
+
     local lR, lG, lB = line:GetLeftColor()
 
     if not line:IsDoubleLine() then
-        GameTooltip:AddLine(leftText, lR, lG, lB)
+        tooltip:AddLine(leftText, lR, lG, lB)
     else
         local rR, rG, rB = line:GetRightColor()
-        GameTooltip:AddDoubleLine(leftText, rightText, lR, lG, lB, rR, rG, rB)
+        tooltip:AddDoubleLine(leftText, rightText, lR, lG, lB, rR, rG, rB)
     end
 
     line:Clear()
@@ -278,7 +304,7 @@ do
 
     function lib:AddIcon(texture)
         C:Requires(texture, 2, "string", "number")
-        GameTooltip:AddTexture(texture, ICON_TEXTURE_SETTINGS)
+        tooltip:AddTexture(texture, ICON_TEXTURE_SETTINGS)
         return self
     end
 end
@@ -287,19 +313,19 @@ do
     local EMPTY = " "
 
     function lib:AddEmptyLine()
-        GameTooltip:AddLine(EMPTY)
+        tooltip:AddLine(EMPTY)
         return self
     end
 end
 
 function lib:Clear()
-    GameTooltip:ClearLines()
+    tooltip:ClearLines()
 end
 
 function lib:Show()
-    GameTooltip:Show()
+    tooltip:Show()
 end
 
 function lib:Hide()
-    GameTooltip:Hide()
+    tooltip:Hide()
 end
